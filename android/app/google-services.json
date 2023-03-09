@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "529419593910",
+    "project_id": "backend-ac064",
+    "storage_bucket": "backend-ac064.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:529419593910:android:f09ec93eaa18afadc19e17",
+        "android_client_info": {
+          "package_name": "com.biometric"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "529419593910-1rmi16e9np0rrg4qkisp2h34f9er1q0a.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.biometric",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "529419593910-uvb8eanaibndrhpunsui6q05j79jqfa1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCVOCks5Q5tRoI9R7CIMm-2Mufa8M9dbo8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "529419593910-uvb8eanaibndrhpunsui6q05j79jqfa1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
