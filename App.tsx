@@ -16,18 +16,6 @@ const rnBiometrics = new ReactNativeBiometrics();
 
 const db = firestore()
 
-/* db.collection("users").add({
-  first: "Ada",
-  last: "Lovelace",
-  born: 1815
-})
-.then((docRef) => {
-  console.log("Document written with ID: ", docRef.id);
-})
-.catch((error) => {
-  console.error("Error adding document: ", error);
-}); */
-
 const Login = (props) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -125,7 +113,12 @@ const CheckBiometrics = (props) => {
             console.log(payload)
             console.log(signature)
             const valid = await RSA.verifyWithAlgorithm(signature,payload,publicKey,RSA.SHA256withRSA)
-            .then((resultado) => console.log('RESULTADO' + resultado))
+            .then((resultado) => {
+              console.log('RESULTADO' + resultado); 
+              if(resultado === true){ 
+                props.navigation.navigate("CheckLocation");
+              }
+            })
             .catch((err) => console.log(err));
           }
         })
@@ -142,6 +135,103 @@ const CheckBiometrics = (props) => {
       <Button title="continue" onPress={() => check()} />
     </View>
   )
+}
+
+const CheckLocation = () => {
+  var ActLatitude;
+  var Actlongitude;
+  var DbLatitude;
+  var Dblongitud;
+  var uid;
+  var data;
+
+  const check = async() => {
+    await auth().onAuthStateChanged((user) => {
+      if(user){
+        uid = user.uid;
+      } else {
+        console.log('user is sign out');
+      }
+    })
+    console.log('user id:')
+    console.log(uid);
+
+    await db.collection('Locations').where('user', '==', uid).get()
+    .then((querySnapshot) => {
+      querySnapshot.forEach((doc) => {
+        // doc.data() is never undefined for query doc snapshots
+        console.log(doc.id, " => ", doc.data());
+        data = doc.data();
+        DbLatitude = data.latitude;
+        Dblongitud = data.longitude;
+        DbLatitude = Math.round(DbLatitude);
+        Dblongitud = Math.round(Dblongitud);
+      });
+    })
+
+    const result = requestLocationPermission();
+    result.then(res => {
+      console.log('res is:', res);
+      if (res) {
+        Geolocation.getCurrentPosition(
+          position => {
+            ActLatitude = position ? position.coords.latitude : '';
+            Actlongitude = position ? position.coords.longitude : '';
+            ActLatitude = Math.round(ActLatitude)
+            Actlongitude = Math.round(Actlongitude)
+            console.log('latitude: ' + ActLatitude)
+            console.log('longitude: ' + Actlongitude)
+            if (DbLatitude === ActLatitude && Dblongitud === Actlongitude ){
+              try {
+                db.collection("Hours").add({
+                  user: uid,
+                  Inicio: new Date(),
+                  Fin: '',
+                }).then((docRef) => {
+                  console.log("Document written with ID: ", docRef.id);
+                  console.log('Time start');
+                  Geolocation.watchPosition(() => {
+                    var day = db.collection('Hours').doc(docRef.id)
+                    return day.update({
+                      Fin: new Date()
+                    }).then(() => {
+                      console.log("Document successfully updated!");
+                    })
+                    .catch((error) => {
+                        // The document probably doesn't exist.
+                        console.error("Error updating document: ", error);
+                    });
+                  },(error) => console.log(error),
+                  {enableHighAccuracy:true, distanceFilter:10})
+                })
+                .catch((error) => {
+                  console.error("Error adding document: ", error);
+                });
+              } catch (error) {
+                console.log(error)
+              }
+            }
+          },
+          error => {
+            // See error code charts below.
+            console.log(error.code, error.message);
+          },
+          {enableHighAccuracy: true, timeout: 30000, maximumAge: 30000},
+        );
+      }
+    });
+  }
+  return (
+    <View style={styles.container}>
+      <Text>Welcome!</Text>
+      <Text>Latitude: {ActLatitude ? ActLatitude : null}</Text>
+      <Text>Longitude: {Actlongitude ? Actlongitude : null}</Text>
+      <View
+        style={{marginTop: 10, padding: 10, borderRadius: 10, width: '40%'}}>
+        <Button title="Get Location" onPress={check} />
+      </View>
+    </View>
+  );
 }
 
 //funcion que comprueba que tu dispositivo se compatible con biometria
@@ -343,19 +433,58 @@ const requestLocationPermission = async () => {
   }
 };
 
-const Geo = () => {
+const Geo = (props) => {
   const [location, setLocation] = useState(false);
 
+  const saveLocation = (latitude, longitude) => {
+    let uid;
+    auth().onAuthStateChanged((user) => {
+      if(user){
+        uid = user.uid;
+        console.log('user id:')
+        console.log(uid);
+        try {
+          console.log('location')
+          console.log(location)
+          db.collection("Locations").add({
+            user: uid,
+            latitude: latitude,
+            longitude: longitude,
+          }).then((docRef) => {
+            console.log("Document written with ID: ", docRef.id);
+          })
+          .catch((error) => {
+            console.error("Error adding document: ", error);
+          });
+        } catch (error) {
+          console.log(error)
+        }
+        props.navigation.navigate("Login");
+      } else {
+        console.log('user is sign out');
+      }
+    })
+
+  }
+
   // function to check permissions and get Location
-  const getLocation = () => {
+  const getLocation = async() => {
+    var latitude;
+    var longitude;
     const result = requestLocationPermission();
-    result.then(res => {
+    await result.then(res => {
       console.log('res is:', res);
       if (res) {
         Geolocation.getCurrentPosition(
           position => {
-            console.log(position);
             setLocation(position);
+            console.log(location);
+
+            latitude = position ? position.coords.latitude : '';
+            longitude = position ? position.coords.longitude : '';
+            console.log('latitude: ' + latitude)
+            console.log('longitude: ' + longitude)
+            saveLocation(latitude,longitude);
           },
           error => {
             // See error code charts below.
@@ -366,7 +495,6 @@ const Geo = () => {
         );
       }
     });
-    console.log(location);
   };
 
   return (
@@ -393,6 +521,7 @@ export default function App() {
         <Stack.Screen name='Geo' component={Geo} />
         <Stack.Screen name='Login' component={Login} />
         <Stack.Screen name='CheckBiometrics' component={CheckBiometrics} />
+        <Stack.Screen name='CheckLocation' component={CheckLocation} />
       </Stack.Navigator>
     </NavigationContainer>
   );
