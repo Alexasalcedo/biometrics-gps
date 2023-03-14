@@ -2,6 +2,7 @@ import React, { useState, useEffect} from 'react';
 import { Platform, Text, View, StyleSheet, Button, Alert, PermissionsAndroid, TextInput} from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationContainer } from '@react-navigation/native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { RSA } from 'react-native-rsa-native';
 
@@ -11,6 +12,7 @@ import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 
 const Stack = createNativeStackNavigator();
+const Tab = createBottomTabNavigator();
 //Constructor para funciones de biometria
 const rnBiometrics = new ReactNativeBiometrics();
 
@@ -116,7 +118,7 @@ const CheckBiometrics = (props) => {
             .then((resultado) => {
               console.log('RESULTADO' + resultado); 
               if(resultado === true){ 
-                props.navigation.navigate("CheckLocation");
+                props.navigation.navigate("Main");
               }
             })
             .catch((err) => console.log(err));
@@ -137,13 +139,15 @@ const CheckBiometrics = (props) => {
   )
 }
 
-const CheckLocation = () => {
+const CheckLocation = (props) => {
+  const [location, setLocation] = useState(false);
   var ActLatitude;
   var Actlongitude;
   var DbLatitude;
   var Dblongitud;
   var uid;
   var data;
+  var docId;
 
   const check = async() => {
     await auth().onAuthStateChanged((user) => {
@@ -170,7 +174,7 @@ const CheckLocation = () => {
     })
 
     const result = requestLocationPermission();
-    result.then(res => {
+    await result.then(res => {
       console.log('res is:', res);
       if (res) {
         Geolocation.getCurrentPosition(
@@ -181,6 +185,7 @@ const CheckLocation = () => {
             Actlongitude = Math.round(Actlongitude)
             console.log('latitude: ' + ActLatitude)
             console.log('longitude: ' + Actlongitude)
+            setLocation(position);
             if (DbLatitude === ActLatitude && Dblongitud === Actlongitude ){
               try {
                 db.collection("Hours").add({
@@ -190,19 +195,8 @@ const CheckLocation = () => {
                 }).then((docRef) => {
                   console.log("Document written with ID: ", docRef.id);
                   console.log('Time start');
-                  Geolocation.watchPosition(() => {
-                    var day = db.collection('Hours').doc(docRef.id)
-                    return day.update({
-                      Fin: new Date()
-                    }).then(() => {
-                      console.log("Document successfully updated!");
-                    })
-                    .catch((error) => {
-                        // The document probably doesn't exist.
-                        console.error("Error updating document: ", error);
-                    });
-                  },(error) => console.log(error),
-                  {enableHighAccuracy:true, distanceFilter:10})
+                  docId = docRef.id;
+
                 })
                 .catch((error) => {
                   console.error("Error adding document: ", error);
@@ -220,18 +214,100 @@ const CheckLocation = () => {
         );
       }
     });
+
+    console.log(docId);
+    Geolocation.watchPosition(position => {
+      console.log(position)
+      var day = db.collection('Hours').doc(docId)
+      return day.update({
+        Fin: new Date()
+      }).then(() => {
+        console.log("Document successfully updated!");
+      })
+      .catch((error) => {
+          // The document probably doesn't exist.
+          console.error("Error updating document: ", error);
+      });
+    },(error) => console.log(error),
+    {enableHighAccuracy:true, distanceFilter:10, useSignificantChanges: true});
   }
+
   return (
     <View style={styles.container}>
       <Text>Welcome!</Text>
-      <Text>Latitude: {ActLatitude ? ActLatitude : null}</Text>
-      <Text>Longitude: {Actlongitude ? Actlongitude : null}</Text>
+      <Text>Latitude: {location ? location.coords.latitude : null}</Text>
+      <Text>Longitude: {location ? location.coords.longitude : null}</Text>
       <View
         style={{marginTop: 10, padding: 10, borderRadius: 10, width: '40%'}}>
         <Button title="Get Location" onPress={check} />
       </View>
     </View>
   );
+}
+
+const LogOut = (props) => {
+  var uid;
+  var data;
+  var filter = [];
+
+  //Geolocation.stopObserving();
+
+  const out = () => {
+    auth().signOut().then(() => {
+      console.log('Sucessful on log-out');
+      props.navigation.navigate('SignIn');
+    }).catch((error) => {
+      console.log(error);
+    })
+  }
+
+  const getHours = async() =>{
+    await auth().onAuthStateChanged((user) => {
+      if(user){
+        uid = user.uid;
+      } else {
+        console.log('user is sign out');
+      }
+    })
+    console.log('user id:')
+    console.log(uid);
+    await db.collection('Hours').orderBy('Inicio','desc').get()
+    .then((querySnapshot) => {
+      querySnapshot.forEach((doc) => {
+        // doc.data() is never undefined for query doc snapshots
+        //console.log(doc.id, " => ", doc.data());
+        data = doc.data();
+        if (data.user == uid){
+          filter.push(doc.id,data)
+        }
+      });
+      out();
+    })
+
+    if (filter[0] != undefined){
+      console.log(filter[0])
+   
+      var day = db.collection('Hours').doc(filter[0])
+      return day.update({
+        Fin: new Date()
+      }).then(() => {
+        console.log("Document successfully updated!");
+      })
+      .catch((error) => {
+        // The document probably doesn't exist.
+        console.error("Error updating document: ", error);
+      });
+    }
+  }
+
+  return (
+    <View style={styles.container}>
+      <Text>
+        Loging Out
+      </Text>
+      <Button title="continue" onPress={() => getHours()} />
+    </View>
+  )
 }
 
 //funcion que comprueba que tu dispositivo se compatible con biometria
@@ -510,9 +586,16 @@ const Geo = (props) => {
   );
 }
 
-export default function App() {
-  const [biometrics, setBiometrics] = useState(false);
+const MainNavigator = () => {
+  return(
+    <Tab.Navigator>
+      <Tab.Screen name='CheckLocation' component={CheckLocation}/>
+      <Tab.Screen name='LogOut' component={LogOut}/>
+    </Tab.Navigator>
+  )
+} 
 
+export default function App() {
   return (
     <NavigationContainer>
       <Stack.Navigator>
@@ -521,7 +604,7 @@ export default function App() {
         <Stack.Screen name='Geo' component={Geo} />
         <Stack.Screen name='Login' component={Login} />
         <Stack.Screen name='CheckBiometrics' component={CheckBiometrics} />
-        <Stack.Screen name='CheckLocation' component={CheckLocation} />
+        <Stack.Screen name='Main' component={MainNavigator} />
       </Stack.Navigator>
     </NavigationContainer>
   );
