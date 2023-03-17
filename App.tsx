@@ -5,6 +5,14 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { RSA } from 'react-native-rsa-native';
+import { GeofencingEventType } from 'expo-location';
+
+import * as Location from 'expo-location';
+import * as TaskManager from 'expo-task-manager';
+
+const LOCATION_TASK_NAME = 'background-location-task';
+const WATCHING_TASK_NAME = 'fencing-location-task';
+let text = 'Waiting..';
 
 import ReactNativeBiometrics, { BiometryTypes } from 'react-native-biometrics';
 import Geolocation from 'react-native-geolocation-service';
@@ -17,6 +25,31 @@ const Tab = createBottomTabNavigator();
 const rnBiometrics = new ReactNativeBiometrics();
 
 const db = firestore()
+
+const start = async() => {
+  const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
+  if (foregroundStatus === 'granted') {
+    const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
+    if (backgroundStatus === 'granted') {
+      await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+        accuracy: Location.Accuracy.Balanced,
+      });
+      await Location.startGeofencingAsync(WATCHING_TASK_NAME,[
+        {
+          latitude: 20.6568,
+          longitude: -103.3259,
+          radius: 3,
+          notifyOnEnter: true,
+          notifyOnExit: true,
+        }
+      ]).then(() => {
+        console.log('Geofencing started successfully');
+      }).catch(error => {
+        console.log('Error starting geofencing: ', error);
+      });
+    }
+  }
+}
 
 const Login = (props) => {
   const [email, setEmail] = useState('');
@@ -586,10 +619,46 @@ const Geo = (props) => {
   );
 }
 
+function Watch() {
+  const [location, setLocation] = useState(null);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const [status, requestPermission] = Location.useBackgroundPermissions();
+
+  useEffect(() => {
+    (async () => {
+      
+      let { status } = await Location.requestBackgroundPermissionsAsync();
+      if (status !== 'granted') {
+        setErrorMsg('Permission to access location was denied');
+        return;
+      }
+
+      let location = await Location.getCurrentPositionAsync({});
+      setLocation(location);
+    })();
+    start();
+  }, []);
+
+  if (errorMsg) {
+    text = errorMsg;
+  } else if (location) {
+    text = JSON.stringify(location.coords.latitude);
+    text = text + ' , ' + JSON.stringify(location.coords.longitude);
+  }
+
+  return (
+    <View style={styles.container}>
+      <Text>{text}</Text>
+      <Button onPress={start} title="Start tracking location" />
+    </View>
+  );
+}
+
 const MainNavigator = () => {
   return(
     <Tab.Navigator>
       <Tab.Screen name='CheckLocation' component={CheckLocation}/>
+      <Tab.Screen name='Watch' component={Watch}/>
       <Tab.Screen name='LogOut' component={LogOut}/>
     </Tab.Navigator>
   )
@@ -618,3 +687,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
+
+TaskManager.defineTask(LOCATION_TASK_NAME, ({ data: { locations }, error }) => {
+  if (error) {
+    // Error occurred - check `error.message` for more details.
+    return;
+  }
+  console.log('Received new locations', locations);
+  text = locations
+  TaskManager.defineTask(WATCHING_TASK_NAME, ({ data: { eventType, region }, error }) => {
+    if (error) {
+      // Error occurred - check `error.message` for more details.
+      return;
+    }
+    if (eventType === GeofencingEventType.Enter) {
+      console.log("You've entered region:", region);
+    } else if (eventType === GeofencingEventType.Exit) {
+      console.log("You've left region:", region);
+    }
+    console.log(region)
+  });
+}); 
