@@ -5,14 +5,6 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { RSA } from 'react-native-rsa-native';
-import { GeofencingEventType } from 'expo-location';
-
-import * as Location from 'expo-location';
-import * as TaskManager from 'expo-task-manager';
-
-const LOCATION_TASK_NAME = 'background-location-task';
-const WATCHING_TASK_NAME = 'fencing-location-task';
-let text = 'Waiting..';
 
 import ReactNativeBiometrics, { BiometryTypes } from 'react-native-biometrics';
 import Geolocation from 'react-native-geolocation-service';
@@ -26,30 +18,139 @@ const rnBiometrics = new ReactNativeBiometrics();
 
 const db = firestore()
 
-const start = async() => {
-  const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
-  if (foregroundStatus === 'granted') {
-    const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
-    if (backgroundStatus === 'granted') {
-      await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-        accuracy: Location.Accuracy.Balanced,
-      });
-      await Location.startGeofencingAsync(WATCHING_TASK_NAME,[
-        {
-          latitude: 20.6568,
-          longitude: -103.3259,
-          radius: 3,
-          notifyOnEnter: true,
-          notifyOnExit: true,
-        }
-      ]).then(() => {
-        console.log('Geofencing started successfully');
-      }).catch(error => {
-        console.log('Error starting geofencing: ', error);
-      });
-    }
-  }
+// Helper function to calculate the distance between two points in meters
+const getDistanceFromLatLonInMeters = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Radius of the earth in km
+  const dLat = deg2rad(lat2 - lat1);
+  const dLon = deg2rad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const d = R * c; // Distance in km
+  return d * 1000; // Convert to meters
+};
+
+// Helper function to convert degrees to radians
+const deg2rad = (deg) => {
+  return deg * (Math.PI / 180);
+};
+
+function haversine(coord1, coord2) {
+  const R = 6371; // km
+  const dLat = toRad(coord2.latitude - coord1.latitude);
+  const dLon = toRad(coord2.longitude - coord1.longitude);
+  const lat1 = toRad(coord1.latitude);
+  const lat2 = toRad(coord2.latitude);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  console.log(R * c)
+  return R * c;
 }
+
+function toRad(value) {
+  return (value * Math.PI) / 180;
+}
+
+const DBlocation = async(uid) => {
+  await db.collection('Locations').where('user', '==', uid).get()
+  .then((querySnapshot) => {
+    querySnapshot.forEach((doc) => {
+      console.log(doc.id, " => ", doc.data());
+      data = doc.data();
+      DbLatitude = data.latitude;
+      Dblongitud = data.longitude;
+      console.log(data)
+      return data
+    });
+  })
+}
+
+const Watch = () => {
+  const [position, setPosition] = useState(null);
+  const [text, setText] = useState(null);
+  let uid;
+  let location;
+  let destination = {
+    latitude: null,
+    longitude: null
+  };
+  const radius = 30; // meters
+
+  const user = async() => {
+    await auth().onAuthStateChanged((user) => {
+      if(user){
+        uid = user.uid;
+      } else {
+        console.log('user is sign out');
+      }
+    })
+    console.log('user id:')
+    console.log(uid); 
+    await db.collection('Locations').where('user', '==', uid).get()
+    .then((querySnapshot) => {
+      querySnapshot.forEach((doc) => {
+        console.log(doc.id, " => ", doc.data());
+        data = doc.data();
+        destination = {
+          latitude: data.latitude,
+          longitude: data.longitude
+        };
+        console.log(data)
+      });
+    })
+  }
+  user();
+
+  useEffect(() => {
+    const watchId = Geolocation.watchPosition(
+      position => {
+        const distance = haversine(position.coords, destination) * 1000; // meters
+        console.log(distance)
+        if (distance <= radius) {
+          setPosition(position)
+          setText('Location is within range');
+          console.log('Location is within range')
+        } else {
+          setPosition(position)
+          setText('Location is not within range');
+          console.log('Location is not within range')
+        }
+      },
+      error => console.log(error),
+      {
+        enableHighAccuracy: true,
+        timeout: 20000,
+        maximumAge: 1000,
+        distanceFilter: 3
+      }
+    );
+
+    return () => {
+      Geolocation.clearWatch(watchId);
+    };
+
+  }, []);
+
+  return (
+    <View>
+      {position && (
+        <Text>
+          Latitude: {position.coords.latitude}, Longitude: {position.coords.longitude}
+        </Text>
+      )}
+      {text && (
+        <Text>
+          {text}
+        </Text>
+      )}
+    </View>
+  );
+};
 
 const Login = (props) => {
   const [email, setEmail] = useState('');
@@ -196,13 +297,10 @@ const CheckLocation = (props) => {
     await db.collection('Locations').where('user', '==', uid).get()
     .then((querySnapshot) => {
       querySnapshot.forEach((doc) => {
-        // doc.data() is never undefined for query doc snapshots
         console.log(doc.id, " => ", doc.data());
         data = doc.data();
         DbLatitude = data.latitude;
         Dblongitud = data.longitude;
-        DbLatitude = Math.round(DbLatitude);
-        Dblongitud = Math.round(Dblongitud);
       });
     })
 
@@ -214,12 +312,12 @@ const CheckLocation = (props) => {
           position => {
             ActLatitude = position ? position.coords.latitude : '';
             Actlongitude = position ? position.coords.longitude : '';
-            ActLatitude = Math.round(ActLatitude)
-            Actlongitude = Math.round(Actlongitude)
             console.log('latitude: ' + ActLatitude)
             console.log('longitude: ' + Actlongitude)
             setLocation(position);
-            if (DbLatitude === ActLatitude && Dblongitud === Actlongitude ){
+            let meters = getDistanceFromLatLonInMeters(ActLatitude,Actlongitude,DbLatitude,Dblongitud);
+            console.log('Meters: ', meters)
+            if (meters < 30){
               try {
                 db.collection("Hours").add({
                   user: uid,
@@ -247,22 +345,6 @@ const CheckLocation = (props) => {
         );
       }
     });
-
-    console.log(docId);
-    Geolocation.watchPosition(position => {
-      console.log(position)
-      var day = db.collection('Hours').doc(docId)
-      return day.update({
-        Fin: new Date()
-      }).then(() => {
-        console.log("Document successfully updated!");
-      })
-      .catch((error) => {
-          // The document probably doesn't exist.
-          console.error("Error updating document: ", error);
-      });
-    },(error) => console.log(error),
-    {enableHighAccuracy:true, distanceFilter:10, useSignificantChanges: true});
   }
 
   return (
@@ -619,41 +701,6 @@ const Geo = (props) => {
   );
 }
 
-function Watch() {
-  const [location, setLocation] = useState(null);
-  const [errorMsg, setErrorMsg] = useState(null);
-  const [status, requestPermission] = Location.useBackgroundPermissions();
-
-  useEffect(() => {
-    (async () => {
-      
-      let { status } = await Location.requestBackgroundPermissionsAsync();
-      if (status !== 'granted') {
-        setErrorMsg('Permission to access location was denied');
-        return;
-      }
-
-      let location = await Location.getCurrentPositionAsync({});
-      setLocation(location);
-    })();
-    start();
-  }, []);
-
-  if (errorMsg) {
-    text = errorMsg;
-  } else if (location) {
-    text = JSON.stringify(location.coords.latitude);
-    text = text + ' , ' + JSON.stringify(location.coords.longitude);
-  }
-
-  return (
-    <View style={styles.container}>
-      <Text>{text}</Text>
-      <Button onPress={start} title="Start tracking location" />
-    </View>
-  );
-}
-
 const MainNavigator = () => {
   return(
     <Tab.Navigator>
@@ -687,24 +734,3 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
-
-TaskManager.defineTask(LOCATION_TASK_NAME, ({ data: { locations }, error }) => {
-  if (error) {
-    // Error occurred - check `error.message` for more details.
-    return;
-  }
-  console.log('Received new locations', locations);
-  text = locations
-  TaskManager.defineTask(WATCHING_TASK_NAME, ({ data: { eventType, region }, error }) => {
-    if (error) {
-      // Error occurred - check `error.message` for more details.
-      return;
-    }
-    if (eventType === GeofencingEventType.Enter) {
-      console.log("You've entered region:", region);
-    } else if (eventType === GeofencingEventType.Exit) {
-      console.log("You've left region:", region);
-    }
-    console.log(region)
-  });
-}); 
