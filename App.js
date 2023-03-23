@@ -1,5 +1,5 @@
 import React, { useState, useEffect} from 'react';
-import { Platform, Text, View, StyleSheet, Button, Alert, PermissionsAndroid, TextInput} from 'react-native';
+import { Platform, Text, View, StyleSheet, Button, Alert, PermissionsAndroid, TextInput, Image, AppState} from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -15,8 +15,7 @@ const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 //Constructor para funciones de biometria
 const rnBiometrics = new ReactNativeBiometrics();
-
-const db = firestore()
+const db = firestore();
 
 // Helper function to calculate the distance between two points in meters
 const getDistanceFromLatLonInMeters = (lat1, lon1, lat2, lon2) => {
@@ -70,16 +69,54 @@ const DBlocation = async(uid) => {
   })
 }
 
-const Watch = () => {
+const Watch = (props) => {
   const [position, setPosition] = useState(null);
   const [text, setText] = useState(null);
   let uid;
   let location;
+  var filter = [];
   let destination = {
-    latitude: null,
-    longitude: null
+    latitude: 0,
+    longitude: 0
   };
   const radius = 30; // meters
+
+  const out = async() => {
+    await auth().signOut().then(() => {
+      console.log('Sucessful on log-out');
+      props.navigation.navigate('SignIn');
+    }).catch((error) => {
+      console.log(error);
+    })
+  }
+
+  const stopTime = async() => {
+    await db.collection('Hours').orderBy('Inicio','desc').get()
+    .then((querySnapshot) => {
+      querySnapshot.forEach((doc) => {
+        data = doc.data();
+        if (data.user == uid){
+          filter.push(doc.id,data)
+        }
+      });
+      out();
+    })
+
+    if (filter[0] != undefined){
+      console.log(filter[0])
+   
+      var day = db.collection('Hours').doc(filter[0])
+      return day.update({
+        Fin: new Date()
+      }).then(() => {
+        console.log("Document successfully updated!");
+      })
+      .catch((error) => {
+        // The document probably doesn't exist.
+        console.error("Error updating document: ", error);
+      });
+    }
+  } 
 
   const user = async() => {
     await auth().onAuthStateChanged((user) => {
@@ -106,17 +143,18 @@ const Watch = () => {
   }
   user();
 
-  useEffect(() => {
-    const watchId = Geolocation.watchPosition(
+  const pos = async() =>{
+    const watchId = await Geolocation.watchPosition(
       position => {
         const distance = haversine(position.coords, destination) * 1000; // meters
         console.log(distance)
         if (distance <= radius) {
-          setPosition(position)
+          setPosition(position);
           setText('Location is within range');
           console.log('Location is within range')
         } else {
-          setPosition(position)
+          stopTime();
+          setPosition(position);
           setText('Location is not within range');
           console.log('Location is not within range')
         }
@@ -133,18 +171,25 @@ const Watch = () => {
     return () => {
       Geolocation.clearWatch(watchId);
     };
+  }
 
+  useEffect(() => {
+    pos();
   }, []);
 
   return (
-    <View>
+    <View style={styles.container}>
+      <View>
+        <Image source={require('./img/mapa.png')} style={styles.image}/>
+      </View>
       {position && (
-        <Text>
-          Latitude: {position.coords.latitude}, Longitude: {position.coords.longitude}
+        <Text style={styles.plainText}>
+          Latitude: {position.coords.latitude},
+          Longitude: {position.coords.longitude}
         </Text>
       )}
       {text && (
-        <Text>
+        <Text style={styles.card}>
           {text}
         </Text>
       )}
@@ -185,6 +230,7 @@ const Login = (props) => {
         <TextInput 
           placeholder='Email:'
           onChangeText={(value) => handleChangeText('email',value)}
+          style={styles.text}
         />
       </View>
       <View>
@@ -192,6 +238,7 @@ const Login = (props) => {
           placeholder='Password:'
           onChangeText={(value) => handleChangeText('password',value)}
           secureTextEntry={true}
+          style={styles.text}
         />
       </View>
       <View>
@@ -265,8 +312,8 @@ const CheckBiometrics = (props) => {
   }
   return (
     <View style={styles.container}>
-      <Text>
-        Saving the biometric data
+      <Text style={styles.card}>
+        To continue, please confirm your identity
       </Text>
       <Button title="continue" onPress={() => check()} />
     </View>
@@ -327,7 +374,7 @@ const CheckLocation = (props) => {
                   console.log("Document written with ID: ", docRef.id);
                   console.log('Time start');
                   docId = docRef.id;
-
+                  //props.navigation.navigate('Watch');
                 })
                 .catch((error) => {
                   console.error("Error adding document: ", error);
@@ -349,9 +396,9 @@ const CheckLocation = (props) => {
 
   return (
     <View style={styles.container}>
-      <Text>Welcome!</Text>
-      <Text>Latitude: {location ? location.coords.latitude : null}</Text>
-      <Text>Longitude: {location ? location.coords.longitude : null}</Text>
+      <Text style={styles.plainText}>Welcome!</Text>
+      <Text style={styles.plainText}>Latitude: {location ? location.coords.latitude : null} </Text>
+      <Text style={styles.plainText}>Longitude: {location ? location.coords.longitude : null}</Text>
       <View
         style={{marginTop: 10, padding: 10, borderRadius: 10, width: '40%'}}>
         <Button title="Get Location" onPress={check} />
@@ -386,11 +433,10 @@ const LogOut = (props) => {
     })
     console.log('user id:')
     console.log(uid);
+
     await db.collection('Hours').orderBy('Inicio','desc').get()
     .then((querySnapshot) => {
       querySnapshot.forEach((doc) => {
-        // doc.data() is never undefined for query doc snapshots
-        //console.log(doc.id, " => ", doc.data());
         data = doc.data();
         if (data.user == uid){
           filter.push(doc.id,data)
@@ -486,21 +532,18 @@ const SignIn = (props) => {
 
   return (
     <View style={styles.container}>
-      <Text>
-        {biometrics
-          ? 'Your device is compatible with Biometrics'
-          : 'Your device is NOT compatible with Biometrics'}
-      </Text>
       <View>
         <TextInput 
           placeholder='Name:' 
           onChangeText={(value) => handleChangeText('name',value)}
+          style={styles.text}
         />
       </View>
       <View>
         <TextInput 
           placeholder='Email:'
           onChangeText={(value) => handleChangeText('email',value)}
+          style={styles.text}
         />
       </View>
       <View>
@@ -508,14 +551,25 @@ const SignIn = (props) => {
           placeholder='Password:'
           onChangeText={(value) => handleChangeText('password',value)}
           secureTextEntry={true}
+          style={styles.text}
         />
       </View>
-      <View>
+      <View style={{
+        margin:10,
+      }}>
         <Button title='Sign In' onPress={() => saveNewUser()}/>
       </View>
+      <Text style={{marginTop:20,}}>
+        You already have an account?
+      </Text>
       <View>
         <Button title='Login' onPress={() => props.navigation.navigate("Login")} />
       </View>
+      <Text style={styles.card}>
+        {biometrics
+          ? 'Your device is compatible with Biometrics'
+          : 'Your device is NOT compatible with Biometrics'}
+      </Text>
     </View>
     
   );
@@ -715,12 +769,66 @@ export default function App() {
   return (
     <NavigationContainer>
       <Stack.Navigator>
-        <Stack.Screen name='SignIn' component={SignIn} />
-        <Stack.Screen name='AddBiometrics' component={AddBiometrics} />
-        <Stack.Screen name='Geo' component={Geo} />
-        <Stack.Screen name='Login' component={Login} />
-        <Stack.Screen name='CheckBiometrics' component={CheckBiometrics} />
-        <Stack.Screen name='Main' component={MainNavigator} />
+        <Stack.Screen name='SignIn' component={SignIn} options={{
+          headerStyle:{
+            backgroundColor: '#8C9EFF',
+          },
+          headerTintColor:'#F4FF81',
+          headerTitleStyle:{
+            fontWeight:'bold',
+          },
+          
+        }} />
+        <Stack.Screen name='AddBiometrics' component={AddBiometrics} options={{
+          headerStyle:{
+            backgroundColor: '#8C9EFF',
+          },
+          headerTintColor:'#F4FF81',
+          headerTitleStyle:{
+            fontWeight:'bold',
+          },
+          
+        }}/>
+        <Stack.Screen name='Geo' component={Geo} options={{
+          headerStyle:{
+            backgroundColor: '#8C9EFF',
+          },
+          headerTintColor:'#F4FF81',
+          headerTitleStyle:{
+            fontWeight:'bold',
+          },
+          
+        }}/>
+        <Stack.Screen name='Login' component={Login} options={{
+          headerStyle:{
+            backgroundColor: '#8C9EFF',
+          },
+          headerTintColor:'#F4FF81',
+          headerTitleStyle:{
+            fontWeight:'bold',
+          },
+          
+        }}/>
+        <Stack.Screen name='CheckBiometrics' component={CheckBiometrics} options={{
+          headerStyle:{
+            backgroundColor: '#8C9EFF',
+          },
+          headerTintColor:'#F4FF81',
+          headerTitleStyle:{
+            fontWeight:'bold',
+          },
+          
+        }}/>
+        <Stack.Screen name='Main' component={MainNavigator} options={{
+          headerStyle:{
+            backgroundColor: '#8C9EFF',
+          },
+          headerTintColor:'#F4FF81',
+          headerTitleStyle:{
+            fontWeight:'bold',
+          },
+          
+        }}/>
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -729,8 +837,49 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#EDE7F6',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  button: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 4,
+    elevation: 3,
+    backgroundColor: '#5C6BC0',
+  },
+  text:{
+    borderColor: 'gray',
+    paddingLeft: 10,
+    borderRadius: 5,
+    margin: 10,
+    fontSize: 14,
+    color: '#333',
+    backgroundColor: '#F9FBE7',
+    minWidth: 250,
+    minHeight: 30,
+    alignItems: 'center',
+    textAlign: 'center',
+  },
+  card:{
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 70,
+    margin: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 4,
+    elevation: 3,
+    backgroundColor: '#E0F2F1',
+  },
+  plainText:{
+    fontSize:16,
+    margin: 12,
+  },
+  image:{
+    height:50,
+    width:50,
   },
 });
