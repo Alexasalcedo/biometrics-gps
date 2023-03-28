@@ -14,6 +14,17 @@ import auth from '@react-native-firebase/auth'; //base de datos Usuarios
 const Stack = createNativeStackNavigator();//funcion para navegacion de pantallas
 const Tab = createBottomTabNavigator();//funcion para menu de navegacion de pantallas
 
+import BackgroundGeolocation from "react-native-background-geolocation";
+
+BackgroundGeolocation.ready({
+  desiredAccuracy: BackgroundGeolocation.DESIRED_ACCURACY_HIGH, 
+  distanceFilter: 50
+}).then(state => {
+  console.log('- BackgroundGeolocation is ready: ', state);
+}).catch(error => {
+  console.warn('- BackgroundGeolocation error: ', error);
+});
+
 //Constructor para funciones de biometria
 //Constructor of Biometric functions
 const rnBiometrics = new ReactNativeBiometrics();
@@ -166,11 +177,29 @@ const Watch = (props) => {
   }
   user();
 
+  const background = async(position) => {
+    const targetLocation = { lat: position.coords.latitude, lng: position.coords.longitude };
+
+    await BackgroundGeolocation.on('location', (location) => {
+      const distance = BackgroundGeolocation.distanceTo(targetLocation);
+      console.log(`Distance to target location: ${distance} meters`);
+      const thresholdDistance = 5; // meters
+      if (distance <= thresholdDistance) {
+        console.log('User is within range');
+        // do something when user is within range
+      } else {
+        console.log('User is not within range');
+        // do something when user is not within range
+      }
+    });
+  }
+
   //observa los cambios en la ubicacion y si esta esta en rango
   //Watch the changes on the location and if this one is on range
   const pos = async() =>{
     const watchId = await Geolocation.watchPosition(
       position => {
+        background(position);
         const distance = haversine(position.coords, destination) * 1000; // meters
         console.log(distance)
         if (distance <= radius) {
