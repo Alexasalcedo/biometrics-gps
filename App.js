@@ -5,6 +5,7 @@ import { NavigationContainer } from '@react-navigation/native';//Libreria para N
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'; //Libreria para anvegacion de pantallas
 
 import { RSA } from 'react-native-rsa-native';//Liberia para conprobacion de llave de biometria
+//cambio
 
 import ReactNativeBiometrics, { BiometryTypes } from 'react-native-biometrics'; //Metodos de biometria
 import Geolocation from 'react-native-geolocation-service';//Metodos de ubicacion
